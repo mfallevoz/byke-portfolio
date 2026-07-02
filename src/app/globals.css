@@ -48,6 +48,9 @@ a {
   scrollbar-width: none;
   /* One video at a time — snap each slide to the top of the viewport. */
   scroll-snap-type: y mandatory;
+  /* Promote to its own layer so the Contact slide-in transform stays smooth
+     (notably on Safari, which otherwise re-rasterises and looks abrupt). */
+  will-change: transform;
 }
 .carousel::-webkit-scrollbar {
   display: none;

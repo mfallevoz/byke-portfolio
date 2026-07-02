@@ -39,6 +39,8 @@ export default function Carousel({
   const [contactOpen, _setContactOpen] = useState(false);
   const contactRef = useRef(false);
   const busyRef = useRef(false); // an open/close animation is in flight
+  const guardRef = useRef(false); // briefly absorb scroll after a close
+  const lastAdvanceRef = useRef(0); // debounce auto-advance
   const setContactOpen = (v: boolean) => {
     contactRef.current = v;
     _setContactOpen(v);
@@ -75,10 +77,20 @@ export default function Carousel({
     k.style.transform = `translateY(${panelY}px)`;
   };
 
-  // Run `fn` on the next frame after a committed layout (so a non-animated
-  // reposition paints before the animated leg starts).
-  const nextFrame = (fn: () => void) =>
-    requestAnimationFrame(() => requestAnimationFrame(fn));
+  // Force a synchronous style/layout flush so the "start" transform is
+  // committed before the animated one. More reliable than rAF on Safari,
+  // which can coalesce frames and skip the transition (→ an abrupt jump).
+  const commit = () => {
+    void ref.current?.offsetHeight;
+  };
+
+  // Absorb residual scroll momentum (trackpad inertia) for a moment after a
+  // close, so the gesture that dismissed Contact doesn't also flick the
+  // carousel to another slide.
+  const cool = () => {
+    guardRef.current = true;
+    window.setTimeout(() => (guardRef.current = false), 450);
+  };
 
   const openContact = () => {
     const c = ref.current;
@@ -87,11 +99,14 @@ export default function Carousel({
     setContactOpen(true);
     const H = c.clientHeight;
     place(0, H, false); // video centred, panel just below
-    nextFrame(() => place(-PARALLAX * H, 0, true)); // video lags up, panel in
+    commit();
+    place(-PARALLAX * H, 0, true); // video lags up (parallax), panel slides in
     window.setTimeout(() => (busyRef.current = false), SLIDE_MS);
   };
 
-  // Scroll UP from Contact → panel exits downward, same video returns.
+  // Leaving Contact is a single slide back to the SAME video; only the exit
+  // direction follows the gesture. Up → panel drops back down; down → panel
+  // lifts out the top and the video slides up into place.
   const closeUp = () => {
     const c = ref.current;
     if (!c) return;
@@ -101,28 +116,22 @@ export default function Carousel({
       setContactOpen(false);
       busyRef.current = false;
       place(0, H, false);
+      cool();
     }, SLIDE_MS);
   };
 
-  // Scroll DOWN from Contact → panel exits upward, the NEXT video enters from
-  // below (as if Contact were a real slide we scrolled past).
   const closeDown = () => {
     const c = ref.current;
     if (!c) return;
     const H = c.clientHeight;
-    // Move the (hidden) video layer below the panel and advance one slide.
-    place(H, 0, false);
-    const { h, copyH } = offsets();
-    let top = c.scrollTop + h;
-    if (top >= copyH * 2) top -= copyH;
-    c.scrollTop = top;
-    setActive((p) => (p + 1) % P);
-    // Slide the strip up: panel out the top, next video up into view.
-    nextFrame(() => place(0, -H, true));
+    place(H, 0, false); // hide the video below the panel
+    commit();
+    place(0, -H, true); // panel exits the top, video slides up into view
     window.setTimeout(() => {
       setContactOpen(false);
       busyRef.current = false;
-      place(0, H, false); // reset panel back to its hidden spot below
+      place(0, H, false);
+      cool();
     }, SLIDE_MS);
   };
 
@@ -138,10 +147,21 @@ export default function Carousel({
     if (contactRef.current) dismiss("up");
   };
 
-  // ───────── Scroll: infinite loop (carousel) ─────────
+  // Advance to the next video (used when the current one finishes, and by keys).
+  const advanceNext = () => {
+    const c = ref.current;
+    if (!c || contactRef.current || busyRef.current) return;
+    const now = Date.now();
+    if (now - lastAdvanceRef.current < 700) return; // debounce
+    lastAdvanceRef.current = now;
+    c.scrollBy({ top: c.clientHeight, behavior: "smooth" });
+  };
+
+  // ───────── Scroll: infinite loop + momentum guard ─────────
   useEffect(() => {
     const c = ref.current;
     if (!c) return;
+
     let ticking = false;
     const onScroll = () => {
       if (contactRef.current) return; // frozen while Contact is up
@@ -156,8 +176,18 @@ export default function Carousel({
         ticking = false;
       });
     };
+    const block = (e: Event) => {
+      if (guardRef.current) e.preventDefault();
+    };
+
     c.addEventListener("scroll", onScroll, { passive: true });
-    return () => c.removeEventListener("scroll", onScroll);
+    c.addEventListener("wheel", block, { passive: false });
+    c.addEventListener("touchmove", block, { passive: false });
+    return () => {
+      c.removeEventListener("scroll", onScroll);
+      c.removeEventListener("wheel", block);
+      c.removeEventListener("touchmove", block);
+    };
   }, []);
 
   // ───────── Dismiss Contact in the direction of the gesture ─────────
@@ -223,6 +253,7 @@ export default function Carousel({
         src={p.src}
         srcMobile={p.srcMobile}
         poster={p.poster}
+        onEnded={advanceNext}
       />
     ))
   );

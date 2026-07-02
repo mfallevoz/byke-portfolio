@@ -16,15 +16,21 @@ export default function VideoSlide({
   src,
   srcMobile,
   poster,
+  onEnded,
 }: {
   src: string;
   srcMobile?: string;
   poster?: string;
+  onEnded?: () => void;
 }) {
   const rootRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const visibleRef = useRef(false);
   const [load, setLoad] = useState(false);
+
+  // Keep the latest onEnded without re-subscribing the observers.
+  const onEndedRef = useRef(onEnded);
+  onEndedRef.current = onEnded;
 
   // On small screens, load the lighter cropped version when one exists.
   const [isMobile, setIsMobile] = useState(false);
@@ -82,8 +88,19 @@ export default function VideoSlide({
         visibleRef.current = visible;
         const v = videoRef.current;
         if (!v) return;
-        if (visible) playSafe(v);
-        else v.pause();
+        if (visible) {
+          // If it had already played through, rewind so it plays in full again
+          // next time it's on screen (videos no longer loop — they advance on
+          // end). A mid-play video keeps its position.
+          if (v.ended) {
+            try {
+              v.currentTime = 0;
+            } catch {
+              /* not ready yet */
+            }
+          }
+          playSafe(v);
+        } else v.pause();
       },
       { threshold: 0 }
     );
@@ -135,9 +152,11 @@ export default function VideoSlide({
         poster={poster}
         autoPlay
         muted
-        loop
         playsInline
         preload="auto"
+        onEnded={() => {
+          if (visibleRef.current) onEndedRef.current?.();
+        }}
       />
       <div className="slide-vignette" />
     </section>
