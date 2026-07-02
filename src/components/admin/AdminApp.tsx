@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { site } from "@/config";
 import { titleFromSrc, type StoredProject } from "@/data/projects";
 import {
   compressVideo,
@@ -22,12 +23,14 @@ const COMPRESS_TIMEOUT_MS = 45000;
 // Max time to build the lighter mobile (cropped) version before skipping it.
 const MOBILE_TIMEOUT_MS = 30000;
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+// Max time for a single file upload before failing with a clear message (so a
+// storage error — e.g. Vercel Blob returning 503 — never hangs the job forever).
+const UPLOAD_TIMEOUT_MS = 90000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label = "timeout"): Promise<T> {
   return Promise.race([
     promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error("compress-timeout")), ms)
-    ),
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(label)), ms)),
   ]);
 }
 
@@ -173,7 +176,11 @@ export default function AdminApp({
 
       if (needsTranscode) {
         try {
-          const r = await withTimeout(compressVideo(file), COMPRESS_TIMEOUT_MS);
+          const r = await withTimeout(
+            compressVideo(file),
+            COMPRESS_TIMEOUT_MS,
+            "compress-timeout"
+          );
           videoBlob = r.video;
           posterBlob = r.poster;
           ext = "mp4";
@@ -193,21 +200,54 @@ export default function AdminApp({
       let mobileBlob: Blob | null = null;
       try {
         setJob(jobId, { note: "building mobile version…" });
-        mobileBlob = await withTimeout(cropMobile(videoBlob), MOBILE_TIMEOUT_MS);
+        mobileBlob = await withTimeout(
+          cropMobile(videoBlob),
+          MOBILE_TIMEOUT_MS,
+          "mobile-timeout"
+        );
       } catch {
         resetFFmpeg();
         mobileBlob = null;
       }
 
       try {
-        setJob(jobId, { phase: "uploading" });
+        setJob(jobId, { phase: "uploading", note: undefined });
         const slug = slugify(file.name);
-        const src = await uploadFile(videoBlob, `${slug}.${ext}`, mode);
+        // Main video — required. A storage failure here fails the job (fast,
+        // with a clear message) rather than hanging on endless retries.
+        const src = await withTimeout(
+          uploadFile(videoBlob, `${slug}.${ext}`, mode),
+          UPLOAD_TIMEOUT_MS,
+          "upload-timeout"
+        );
+
+        // Mobile version + poster are best-effort: if either fails, keep the
+        // main video rather than losing the whole upload.
         let srcMobile: string | undefined;
-        if (mobileBlob)
-          srcMobile = await uploadFile(mobileBlob, `${slug}-mobile.mp4`, mode);
+        if (mobileBlob) {
+          try {
+            setJob(jobId, { note: "uploading mobile version…" });
+            srcMobile = await withTimeout(
+              uploadFile(mobileBlob, `${slug}-mobile.mp4`, mode),
+              UPLOAD_TIMEOUT_MS,
+              "upload-timeout"
+            );
+          } catch {
+            srcMobile = undefined;
+          }
+        }
         let poster: string | undefined;
-        if (posterBlob) poster = await uploadFile(posterBlob, `${slug}.jpg`, mode);
+        if (posterBlob) {
+          try {
+            poster = await withTimeout(
+              uploadFile(posterBlob, `${slug}.jpg`, mode),
+              UPLOAD_TIMEOUT_MS,
+              "upload-timeout"
+            );
+          } catch {
+            poster = undefined;
+          }
+        }
 
         const proj: StoredProject = {
           id: crypto.randomUUID(),
@@ -219,11 +259,15 @@ export default function AdminApp({
         working = [...working, proj];
         setList(working);
         await persist(working);
-        setJob(jobId, { phase: "done" });
+        setJob(jobId, { phase: "done", note: undefined });
         setTimeout(() => setJobs((prev) => prev.filter((j) => j.id !== jobId)), 2500);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "upload failed";
-        setJob(jobId, { phase: "error", note: message });
+        const raw = err instanceof Error ? err.message : "upload failed";
+        const note =
+          raw === "upload-timeout"
+            ? "storage timed out — check the Vercel Blob store"
+            : raw;
+        setJob(jobId, { phase: "error", note });
       }
     }
   };
@@ -245,7 +289,7 @@ export default function AdminApp({
     <main className="admin">
       <header className="admin-bar">
         <div className="admin-bar-title">
-          MINH DANG <span className="admin-bar-sub">— Admin</span>
+          {site.wordmark} <span className="admin-bar-sub">— Admin</span>
         </div>
         <div className="admin-bar-actions">
           <span className="admin-mode">storage: {mode}</span>

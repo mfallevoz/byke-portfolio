@@ -29,8 +29,6 @@ export default function ContactSection({ dict }: { dict: Dictionary }) {
               </a>
             </li>
           </ul>
-
-          <p className="section-text section-muted">{dict.contact.note}</p>
         </div>
 
         <figure className="contact-photo">

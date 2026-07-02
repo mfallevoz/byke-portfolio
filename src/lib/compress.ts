@@ -47,7 +47,7 @@ export type CompressResult = {
 
 /**
  * Compress a video in the browser, matching the project's web preset:
- * 1080p, H.264, CRF 24, audio stripped, +faststart. Also extracts a poster.
+ * 1080p, H.264, CRF 26, audio stripped, +faststart. Also extracts a poster.
  *
  * `onProgress` receives 0..1 (best-effort — ffmpeg.wasm's progress is not
  * reliable). Throws if ffmpeg.wasm can't run (caller falls back to the original).
@@ -70,7 +70,7 @@ export async function compressVideo(
       "-i", "input",
       "-vf", "scale=-2:1080",
       "-c:v", "libx264",
-      "-crf", "24",
+      "-crf", "26",
       "-preset", "veryfast",
       "-an",
       "-movflags", "+faststart",

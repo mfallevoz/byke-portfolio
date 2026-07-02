@@ -31,9 +31,7 @@ const en = {
     links: {
       email: "Email",
       instagram: "Instagram",
-      vimeo: "Showreel",
     },
-    note: "(Placeholder details — replace with the real contact info.)",
   },
 };
 

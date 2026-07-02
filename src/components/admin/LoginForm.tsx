@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { site } from "@/config";
 
 export default function LoginForm() {
   const [password, setPassword] = useState("");
@@ -29,7 +30,7 @@ export default function LoginForm() {
     <main className="admin-login">
       <form className="admin-login-box" onSubmit={submit}>
         <div className="admin-login-label">Admin</div>
-        <h1 className="admin-login-title">Minh&nbsp;Dang</h1>
+        <h1 className="admin-login-title">{site.name}</h1>
         <input
           className="admin-input"
           type="password"
