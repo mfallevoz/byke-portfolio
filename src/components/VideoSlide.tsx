@@ -81,17 +81,20 @@ export default function VideoSlide({
     );
     loadObserver.observe(root);
 
-    // Play as soon as ANY part of the slide is visible; pause once fully gone.
+    // Only the slide that fills most of the viewport is "active" and plays.
+    // Off-screen slides are still loaded (see loadObserver above) but stay
+    // paused — so a video the user can't see never plays, and only the active
+    // one's `ended` event can advance the carousel.
     const playObserver = new IntersectionObserver(
       (entries) => {
-        const visible = entries[0]?.isIntersecting ?? false;
-        visibleRef.current = visible;
+        const active = (entries[0]?.intersectionRatio ?? 0) >= 0.6;
+        visibleRef.current = active;
         const v = videoRef.current;
         if (!v) return;
-        if (visible) {
+        if (active) {
           // If it had already played through, rewind so it plays in full again
-          // next time it's on screen (videos no longer loop — they advance on
-          // end). A mid-play video keeps its position.
+          // (videos no longer loop — they advance on end). A mid-play video
+          // keeps its position.
           if (v.ended) {
             try {
               v.currentTime = 0;
@@ -102,7 +105,7 @@ export default function VideoSlide({
           playSafe(v);
         } else v.pause();
       },
-      { threshold: 0 }
+      { threshold: [0, 0.6, 1] }
     );
     playObserver.observe(root);
 
@@ -150,7 +153,6 @@ export default function VideoSlide({
         className="slide-media"
         src={load ? effectiveSrc : undefined}
         poster={poster}
-        autoPlay
         muted
         playsInline
         preload="auto"

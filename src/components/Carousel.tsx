@@ -104,9 +104,11 @@ export default function Carousel({
     window.setTimeout(() => (busyRef.current = false), SLIDE_MS);
   };
 
-  // Leaving Contact is a single slide back to the SAME video; only the exit
-  // direction follows the gesture. Up → panel drops back down; down → panel
-  // lifts out the top and the video slides up into place.
+  // The exit follows the gesture, as if Contact were a real adjacent slide:
+  //  • Up   → panel drops back down; you return to the SAME video.
+  //  • Down → panel lifts out the top and the NEXT video slides up into view.
+  // The post-close `cool()` guard absorbs trackpad inertia so a single gesture
+  // never flicks the carousel an extra slide.
   const closeUp = () => {
     const c = ref.current;
     if (!c) return;
@@ -125,8 +127,15 @@ export default function Carousel({
     if (!c) return;
     const H = c.clientHeight;
     place(H, 0, false); // hide the video below the panel
+    // Advance one slide (revealed as the panel lifts away). onScroll is frozen
+    // while Contact is up, so we move + relabel manually.
+    const { h, copyH } = offsets();
+    let top = c.scrollTop + h;
+    if (top >= copyH * 2) top -= copyH;
+    c.scrollTop = top;
+    setActive((p) => (p + 1) % P);
     commit();
-    place(0, -H, true); // panel exits the top, video slides up into view
+    place(0, -H, true); // panel exits the top, next video slides up into view
     window.setTimeout(() => {
       setContactOpen(false);
       busyRef.current = false;
